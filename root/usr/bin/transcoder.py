@@ -435,4 +435,9 @@ class Transcoder(object):
 
 
 if __name__ == '__main__':
+    if not os.path.isfile(CONFIG_FILE):
+        # Copy the config file over if it doesn't exist
+        shutil.copy2('/etc/config.example.yaml', CONFIG_FILE)
+    # Copy the latest example over, every time.
+    shutil.copy2('/etc/config.example.yaml', CONFIG_ROOT)
     Transcoder().run()

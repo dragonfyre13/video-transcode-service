@@ -17,6 +17,7 @@ TC_ROOT = "/video_files"
 CONFIG_ROOT = "/config"
 LOG_FILE = os.path.join(CONFIG_ROOT, 'transcoder.log')
 CONFIG_FILE = os.path.join(CONFIG_ROOT, 'config.yaml')
+LOG_TRACE = 5
 
 
 class TranscodeError(RuntimeError):
@@ -31,11 +32,11 @@ class Transcoder(object):
         self.current_command = None
         self._default_handlers = {}
         self.config = self.get_config_dict()
-        self._input_subdir = self.config['input_subdir'] or 'input'
-        self._output_subdir = self.config['output_subdir'] or 'output'
-        self._successful_orginals_subdir = self.config['successful_orginals_subdir'] or 'originals'
-        self._failed_originals_subdir = self.config['failed_originals_subdir'] or 'failed'
-        self._work_dir = self.config['failed_originals_subdir'] or 'work'
+        self._input_subdir = 'input'
+        self._output_subdir = 'output'
+        self._successful_originals_subdir = 'originals'
+        self._failed_originals_subdir = 'failed'
+        self._work_dir = 'work'
         # Used when processing a file. Horribly un-threadsafe, but I don't have a use for threads in this class.
         self._current_relpath = ''
         self._current_filename = ''
@@ -49,8 +50,12 @@ class Transcoder(object):
 
     @property
     def output_loc(self):
-        return os.path.join(TC_ROOT, self._option_dir, self._output_subdir,
-                            self._current_relpath, os.path.splitext(self._current_filename)[0] + '.mkv')
+        if self._current_filename:
+            return os.path.join(TC_ROOT, self._option_dir, self._output_subdir,
+                                self._current_relpath, os.path.splitext(self._current_filename)[0] + '.mkv')
+        else:
+            return os.path.join(TC_ROOT, self._option_dir, self._output_subdir,
+                                self._current_relpath, self._current_filename)
 
     @property
     def failed_originals_loc(self):
@@ -59,13 +64,13 @@ class Transcoder(object):
 
     @property
     def successful_originals_loc(self):
-        return os.path.join(TC_ROOT, self._option_dir, self._successful_orginals_subdir,
+        return os.path.join(TC_ROOT, self._option_dir, self._successful_originals_subdir,
                             self._current_relpath, self._current_filename)
 
     @property
     def simple_loc(self):
-        return '"%s" in "%s"' (os.path.join(self._current_relpath, self._current_filename),
-                               self._option_dir)
+        return '"%s" in "%s"' % (os.path.join(self._current_relpath, self._current_filename),
+                                 self._option_dir)
 
     @property
     def work_loc(self):
@@ -84,6 +89,9 @@ class Transcoder(object):
 
     def set_current_file_props(self, current_relpath='', current_filename=''):
         '''Set a filename and it's relative path to subdirs for the current file.'''
+        if current_relpath or current_filename:
+            self.logger.log(LOG_TRACE, 'Set file props to relpath=%r and filename=%r',
+                            current_relpath, current_filename)
         self._current_relpath = current_relpath or ''
         self._current_filename = current_filename or ''
 
@@ -96,7 +104,7 @@ class Transcoder(object):
     def setup_logging():
         '''Setup basic logging to the log file (DEBUG minimum) and stdout (INFO minimum)'''
         logger = logging.getLogger('transcoder')
-        formatter = logging.Formatter('%(asctime)s - %(message)s')
+        formatter = logging.Formatter('%(asctime)s %(levelname)8s: %(message)s')
         logger.setLevel(logging.DEBUG)
         filehandler = logging.FileHandler(LOG_FILE)
         filehandler.setLevel(logging.DEBUG)
@@ -106,7 +114,7 @@ class Transcoder(object):
         streamhandler.setLevel(logging.INFO)
         streamhandler.setFormatter(formatter)
         logger.addHandler(streamhandler)
-        logger.debug('Started transcoder logging')
+        logger.debug('************ Started transcoder logging ************')
         return logger
 
     def reload_config(self):
@@ -114,9 +122,12 @@ class Transcoder(object):
         config = self.get_config_dict()
         self._input_subdir = config['input_subdir'] or 'input'
         self._output_subdir = config['output_subdir'] or 'output'
-        self._successful_orginals_subdir = config['successful_orginals_subdir'] or 'originals'
+        self._successful_originals_subdir = config['successful_originals_subdir'] or 'originals'
         self._failed_originals_subdir = config['failed_originals_subdir'] or 'failed'
-        self._work_dir = config['failed_originals_subdir'] or 'work'
+        self._work_dir = config['work_dir'] or 'work'
+        self.logger.log(LOG_TRACE, 'Loaded config including:\n_work_dir=%r\n_input_subdir=%r\n_output_subdir=%r\n'
+                        '_failed_originals_subdir=%r\n_successful_originals_subdir=%r', self._input_subdir,
+                        self._output_subdir, self._failed_originals_subdir, self._successful_originals_subdir)
         self.check_filesystem(config)
         return config
 
@@ -126,7 +137,7 @@ class Transcoder(object):
         config = dict(
             write_waiting_threshold=30, min_free_mb=1000, require_english=False,
             work_dir='work', input_subdir='input', output_subdir='output',
-            successful_orginals_subdir='originals', failed_originals_subdir='failed',
+            successful_originals_subdir='originals', failed_originals_subdir='failed',
             global_args='', conversion_options={'defaults': ''})
         with open(CONFIG_FILE) as f:
             config.update(yaml.load(f))
@@ -135,20 +146,16 @@ class Transcoder(object):
     def check_filesystem(self, config):
         '''Check that the filesystem and directories are setup as expected for the current config'''
         check_paths = [self.work_dir]
-        # Just in case for some really weird reason I want the random data left there.
-        original_option_dir = self._option_dir
-        try:
-            for option_dir in config['conversion_options'].keys():
-                self._option_dir = option_dir
-                check_paths.extend([self.input_loc, self.output_loc,
-                                    self.failed_originals_loc, self.successful_originals_loc])
-        finally:
-            # This _really_ shouldn't be neccesary, but I do want to use the props for figuring out paths,
-            # and I don't want to silently change self._option_dir if it's expected to be something else.
-            self._option_dir = original_option_dir
+        # Clear this, otherwise all sorts of junk is created.
+        self.set_current_file_props()
+        for option_dir in config['conversion_options'].keys():
+            self.set_current_option_props(option_dir=option_dir)
+            check_paths.extend([self.input_loc, self.output_loc,
+                                self.failed_originals_loc, self.successful_originals_loc])
         # Either verify all paths exist or create them if they don't
         for path in check_paths:
             if not os.path.exists(path):
+                self.logger.debug('Creating %r as it does not currently exist', path)
                 try:
                     os.makedirs(path)
                 except OSError as ex:
@@ -199,7 +206,6 @@ class Transcoder(object):
             while self.running:
                 self.in_event_loop = True
                 self.reload_config()
-                self.wait_free_space()
                 if not self.check_for_input():
                     time.sleep(5)
             self.in_event_loop = False
@@ -211,7 +217,7 @@ class Transcoder(object):
         fs_stat = os.statvfs(TC_ROOT)
         avail_size_mb = (fs_stat.f_frsize * fs_stat.f_bavail) / (1024 * 1024)
         if avail_size_mb > self.config['min_free_mb']:
-            self.logger.debug('Free MB of filesystem: %i', avail_size_mb)
+            self.logger.debug('Free disk space: %i MB', avail_size_mb)
             return True
         else:
             self.logger.warning('Halting until minimum disk space is available. '
@@ -224,9 +230,11 @@ class Transcoder(object):
             return True
 
     def move_file(self, orig_loc, new_loc):
+        self.logger.log(LOG_TRACE, 'Moving file from %r to %r', orig_loc, new_loc)
         if not os.path.exists(orig_loc):
             raise IOError('File to move does not exist: %s' % orig_loc)
         if not os.path.exists(os.path.dirname(new_loc)):
+            self.logger.debug('Creating %r as it does not currently exist.', os.path.dirname(new_loc))
             try:
                 os.makedirs(os.path.dirname(new_loc))
             except OSError as ex:
@@ -247,6 +255,8 @@ class Transcoder(object):
             for dirpath, dirnames, filenames in os.walk(option_input_dir):
                 if not filenames:
                     continue
+                if dirpath.startswith(option_input_dir):
+                    dirpath = dirpath[len(option_input_dir):]
                 for filename in filenames:
                     if filename.startswith('.'):
                         continue
@@ -257,13 +267,19 @@ class Transcoder(object):
                     try:
                         self.scan_media(test_media_file=True)
                     except TranscodeError:
-                        self.logger('Moving non-media file %s to output directory.', self.simple_loc)
+                        self.logger.debug('Moving non-media file %s to output directory.', self.simple_loc)
                         self.move_file(self.input_loc, self.output_loc)
                         continue
                     try:
+                        self.wait_free_space()
                         self.process_input()
                     except TranscodeError, e:
-                        self.logger.error('Error processing %s: %s', self.simple_loc, str(e), exc_info=True)
+                        self.logger.error('TranscodeError processing %s: %s', self.simple_loc, str(e), exc_info=True)
+                        self.move_file(self.input_loc, self.failed_originals_loc)
+                        return True
+                    except BaseException, e:
+                        self.logger.error('Unknown error while processing %s: %s',
+                                          self.simple_loc, str(e), exc_info=True)
                         self.move_file(self.input_loc, self.failed_originals_loc)
                         return True
                     # move the source to the COMPLETED_DIRECTORY
@@ -273,12 +289,12 @@ class Transcoder(object):
 
     def process_input(self):
         self.logger.info('Found new input %s', self.simple_loc)
-
+        self.logger.log(LOG_TRACE, 'File paths:\ninput = %r\noutput = %r\nsuccess = %r\nfailure = %r\n',
+                        self.input_loc, self.output_loc, self.successful_originals_loc, self.failed_originals_loc)
         # transcode the video, including steps to parse the input meta info and determine crop dimensions
         self.transcode()
 
-        # move the completed output to the output directory
-        self.logger.info('Moving completed work for %s to output directory', self.simple_loc)
+        self.logger.debug('Video %s transcoded successfully, now generating transcode stats.', self.simple_loc)
         try:
             with open(self.work_loc + '.transcode_stats', 'w') as f:
                 for stat_type in 'rbst':
@@ -290,6 +306,8 @@ class Transcoder(object):
             # Not raising an error since transcode was successful, even if query-handbrake-log didn't work
             self.logger.warning('Generating handbrake stats failed for %s with: %s',
                                 self.simple_loc, ex.output)
+        # move the completed output to the output directory
+        self.logger.info('Moving completed work for %s to output directory', self.simple_loc)
         self.move_file(self.work_loc, self.output_loc)
         self.move_file(self.work_loc + '.log', self.output_loc + '.log')
         self.move_file(self.work_loc + '.transcode_stats', self.output_loc + '.transcode_stats')

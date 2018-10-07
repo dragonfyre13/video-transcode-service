@@ -14,7 +14,7 @@ input_subdir: input
 # Subdirectory of the applicable conversion_option directory. Contains successfully transcoded videos.
 output_subdir: output
 # Subdirectory of the applicable conversion_option directory. Contains originals of successfully transcoded videos.
-successful_orginals_subdir: completed-originals
+successful_originals_subdir: completed-originals
 # Subdirectory of the applicable conversion_option directory. Contains originals of videos that failed transcoding.
 failed_originals_subdir: failed
 # Arguments to pass to video-transcode for _all_ conversion_option choices.

@@ -14,7 +14,7 @@ FROM lsiobase/alpine:3.8
 
 LABEL maintainer="Dragonfyre13"
 
-COPY root/ /
+COPY root/etc/apk/repositories /etc/apk/repositories
 COPY --from=buildstage /usr/local/bin/mp4* /usr/local/bin/
 COPY --from=buildstage /usr/local/lib/libmp4v2* /usr/local/lib/
 
@@ -34,8 +34,7 @@ RUN echo "**** install supporting packages ****" && \
     echo "**** Clean up temporary files ****" && \
     rm -rf /root/.cache /tmp/*
 
-COPY transcoder.py /usr/bin/transcoder.py
-RUN chmod +x /usr/bin/transcoder.py
+COPY root/ /
 
 # /config - Holds the auto-transcoding config and the harness process logs (not the handbrake logs)
 # /video_files - Holds the folder structures containing things to transcode, gets populated after running the first time

@@ -114,7 +114,7 @@ class Transcoder(object):
         streamhandler.setLevel(logging.INFO)
         streamhandler.setFormatter(formatter)
         logger.addHandler(streamhandler)
-        logger.debug('************ Started transcoder logging ************')
+        logger.info('************ Started transcoder logging ************')
         return logger
 
     def reload_config(self):

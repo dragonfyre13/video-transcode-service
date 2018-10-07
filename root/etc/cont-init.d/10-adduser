@@ -1,0 +1,15 @@
+#!/usr/bin/with-contenv bash
+
+PUID=${PUID:-99}
+PGID=${PGID:-100}
+
+groupmod -o -g "$PGID" abc
+usermod -o -u "$PUID" abc
+
+echo "
+User uid:    $(id -u abc)
+User gid:    $(id -g abc)
+-------------------------------------
+"
+chown -R abc:abc /config
+chown -R abc:abc /video_files

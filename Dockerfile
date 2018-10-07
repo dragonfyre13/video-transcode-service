@@ -13,16 +13,16 @@ RUN ./configure --disable-debug && make && make install
 FROM lsiobase/alpine:3.8
 
 LABEL maintainer="Dragonfyre13"
-ENV PYTHONIOENCODING="UTF-8"
 
+# /config - Holds the auto-transcoding config and the harness process logs (not the handbrake logs)
+# /video_files - Holds the folder structures containing things to transcode, gets populated after running the first time
+VOLUME ["/video_files", "/config"]
+
+# Copy after defining volumes, since /config gets blown away when mounting /config
 COPY root/ /
+
 COPY --from=buildstage /usr/local/bin/mp4* /usr/local/bin/
 COPY --from=buildstage /usr/local/lib/libmp4v2* /usr/local/lib/
-# Now included in root/etc/apk/repositories
-## echo "**** Add edge repositories for alpine to use handbrake/etc. ****"
-## echo "@edge http://nl.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositories
-## echo "@edgecommunity http://nl.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories
-## echo "@edgetesting http://nl.alpinelinux.org/alpine/edge/testing" >> /etc/apk/repositories
 
 # Required for runtime of mp4track: libgcc libstdc++
 RUN echo "**** install supporting packages ****" && \
@@ -40,16 +40,5 @@ RUN echo "**** install supporting packages ****" && \
     echo "**** Clean up temporary files ****" && \
     rm -rf /root/.cache /tmp/* && \
     chmod +x /usr/bin/transcoder.py
-
-# Now we need to setup access to required folders
-# /config
-#   - Holds the auto-transcoding config
-#   - Holds the harness process' logs (not the handbrake logs)
-#
-# /video_files
-#   - Holds the folder structures containing things to transcode
-#   - Gets populated after running with a given config
-
-VOLUME ["/video_files", "/config"]
 
 CMD ["/usr/bin/transcoder.py"]

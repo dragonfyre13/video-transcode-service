@@ -1,2 +1,4 @@
 #!/usr/bin/with-contenv bash
+# change ownership of video files to fix on restart if the process dies due to bad permissions
+chown -R abc:abc /video_files
 exec s6-setuidgid abc python /usr/bin/transcoder.py

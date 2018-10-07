@@ -1,0 +1,7 @@
+#!/usr/bin/with-contenv bash
+
+# Move the example config file into the config location and/or example config location if missing
+[ ! -f /config/config.yaml ] && cp -a /etc/config.example.yaml /config/config.yaml
+[ ! -f /config/config.example.yaml ] && cp -a /etc/config.example.yaml /config/config.example.yaml
+
+chown abc:abc /config/config.yaml /config/config.example.yaml

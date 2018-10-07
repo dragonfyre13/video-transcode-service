@@ -24,12 +24,35 @@ class TranscodeError(RuntimeError):
     pass
 
 
+class ChildProcessError(Exception):
+    """
+    This exception is raised when a child process returns a non-zero exit status.
+    The exit status will be stored in the returncode attribute.
+    The command will be stored in the command attribute
+    The stdout of the command will be stored in stdout.
+    If stdout and stderr were merged during execution, stdout and stderr
+    attributes will both contain the merged output. Otherwise stdout
+    and stderr attributes will contain the relevant output for each channel.
+    """
+    def __init__(self, returncode, command, stdout, stderr):
+        self.returncode = returncode
+        self.command = command
+        self.stdout = stdout
+        if stderr is None:
+            self.stderr = stdout
+        else:
+            self.stderr = stderr
+
+    def __str__(self):
+        return "Command '%s' returned non-zero exit status %d" % (self.command, self.returncode)
+
+
 class Transcoder(object):
     def __init__(self):
         self.running = False
         self.in_event_loop = False
         self.logger = self.setup_logging()
-        self.current_command = None
+        self.current_proc = None
         self._default_handlers = {}
         self.config = self.get_config_dict()
         self._input_subdir = 'input'
@@ -159,8 +182,8 @@ class Transcoder(object):
                 self.logger.debug('Creating %r as it does not currently exist', path)
                 try:
                     os.makedirs(path)
-                except OSError as ex:
-                    msg = 'Cannot create directory "%s": %s' % (path, ex.strerror)
+                except OSError as e:
+                    msg = 'Cannot create directory "%s": %s' % (path, e.strerror)
                     raise IOError(msg)
 
     def setup_signal_handlers(self):
@@ -178,8 +201,8 @@ class Transcoder(object):
         except BaseException:
             # Don't die for the sake of logging...
             pass
-        if self.current_command:
-            self.current_command.terminate()
+        if self.current_proc:
+            self.current_proc.terminate()
         # Restore the original signal handlers
         self.restore_signal_handlers()
 
@@ -189,12 +212,18 @@ class Transcoder(object):
             signal.signal(sig, handler)
         self._default_handlers = {}
 
-    def execute(self, command):
-        '''A simple and somewhat brittle method to kick off an arbitrary child process'''
-        # TODO: use Popen so we can terminate, or use a decent 3rd party lib like
+    def execute(self, command, merge_stderr=True):
+        '''A simple method to kick off an arbitrary child process'''
         args = shlex.split(command)
-        out = subprocess.check_output(args=args, stderr=subprocess.STDOUT)
-        return out
+        stderr = subprocess.STDOUT if merge_stderr else subprocess.PIPE
+        try:
+            self.current_proc = subprocess.Popen(args=args, stdout=subprocess.PIPE, stderr=stderr)
+            stdout, stderr = self.current_proc.communicate()
+            if self.current_proc.returncode != 0:
+                raise ChildProcessError(self.current_proc.returncode, command, stdout, stderr)
+        finally:
+            self.current_proc = None
+        return stdout
 
     def run(self):
         '''
@@ -210,7 +239,7 @@ class Transcoder(object):
                 if not self.check_for_input():
                     time.sleep(5)
             self.in_event_loop = False
-        except BaseException, e:
+        except BaseException as e:
             self.logger.error('Uncaught exception: %s', str(e), exc_info=True)
             raise
 
@@ -238,8 +267,8 @@ class Transcoder(object):
             self.logger.debug('Creating %r as it does not currently exist.', os.path.dirname(new_loc))
             try:
                 os.makedirs(os.path.dirname(new_loc))
-            except OSError as ex:
-                msg = 'Cannot create directory "%s": %s' % (os.path.dirname(new_loc), ex.strerror)
+            except OSError as e:
+                msg = 'Cannot create directory "%s": %s' % (os.path.dirname(new_loc), e.strerror)
                 raise IOError(msg)
         return shutil.move(orig_loc, new_loc)
 
@@ -274,11 +303,17 @@ class Transcoder(object):
                     try:
                         self.wait_free_space()
                         self.process_input()
-                    except TranscodeError, e:
+                    except TranscodeError as e:
+                        if not self.running:
+                            self.logger.info('Stopping file processing of %s due to early shutdown.', self.simple_loc)
+                            return False
                         self.logger.error('TranscodeError processing %s: %s', self.simple_loc, str(e), exc_info=True)
                         self.move_file(self.input_loc, self.failed_originals_loc)
                         return True
-                    except BaseException, e:
+                    except BaseException as e:
+                        if not self.running:
+                            self.logger.info('Stopping file processing of %s due to early shutdown.', self.simple_loc)
+                            return False
                         self.logger.error('Unknown error while processing %s: %s',
                                           self.simple_loc, str(e), exc_info=True)
                         self.move_file(self.input_loc, self.failed_originals_loc)
@@ -299,14 +334,15 @@ class Transcoder(object):
         try:
             with open(self.work_mkv_loc + '.transcode_stats', 'w') as f:
                 for stat_type in 'rbst':
-                    out = self.execute('query-handbrake-log %s "%s"' % (stat_type, self.work_mkv_loc + '.log'))
+                    out = self.execute('query-handbrake-log %s "%s"' % (stat_type, self.work_mkv_loc + '.log'),
+                                       merge_stderr=False)
                     if stat_type == 'r':
                         self.logger.debug('Encoding rate factor (relative quality, lower=better): %s', out.strip())
                     f.write(out.strip() + '\n')
-        except subprocess.CalledProcessError as ex:
+        except ChildProcessError as e:
             # Not raising an error since transcode was successful, even if query-handbrake-log didn't work
-            self.logger.warning('Generating handbrake stats failed for %s with: %s',
-                                self.simple_loc, ex.output)
+            self.logger.warning('Generating handbrake stats failed for %s with code %i: %s',
+                                self.simple_loc, e.returncode, e.stderr)
         # move the completed output to the output directory
         self.logger.info('Moving completed work for %s to output directory', self.simple_loc)
         self.move_file(self.work_mkv_loc, self.output_mkv_loc)
@@ -320,14 +356,16 @@ class Transcoder(object):
         command = 'HandBrakeCLI --scan --input "%s"' % self.input_loc
         try:
             out = self.execute(command)
-        except subprocess.CalledProcessError as ex:
+        except ChildProcessError as e:
             if test_media_file:
                 raise TranscodeError('Not a usable media file')
-            if 'unrecognized file type' in ex.output:
-                self.logger.warning('Unknown media type for input %s', self.simple_loc)
+            if 'unrecognized file type' in e.stderr:
+                self.logger.warning('Unknown media type (%i) for input %s',
+                                    e.returncode, self.simple_loc)
                 raise TranscodeError('Unknown media type')
             else:
-                self.logger.warning('Unknown error for input %s with error: %s', self.simple_loc, ex.output)
+                self.logger.warning('Unknown error for input %s with error code %i: %s',
+                                    self.simple_loc, e.returncode, e.stderr)
                 raise TranscodeError('Unknown metadata error')
         return out
 
@@ -347,15 +385,16 @@ class Transcoder(object):
         command = 'detect-crop --values-only "%s"' % self.input_loc
         try:
             out = self.execute(command)
-        except subprocess.CalledProcessError as ex:
+        except ChildProcessError as e:
             # when detect-crop detects discrepancies between handbrake and
             # mplayer, each crop is written out but detect-crop also returns
             # an error code. if this is the case, we don't want to error out.
-            if re.findall(crop_re, ex.output):
-                out = ex.output
+            if re.findall(crop_re, e.stdout):
+                self.logger.log(LOG_TRACE, 'Ignoring detect-crop discrepancy between handbrake and mplayer')
+                out = e.stdout
             else:
                 self.logger.debug('detect-crop failed for %s, proceeding with no crop. Error: %s',
-                                  self.simple_loc, ex.output)
+                                  self.simple_loc, e.stdout)
                 return '0:0:0:0'
 
         crops = re.findall(crop_re, out)
@@ -387,9 +426,12 @@ class Transcoder(object):
         ])
         self.logger.info('Transcoding %s with command: %s', self.simple_loc, command)
         try:
-            self.execute(command)
-        except subprocess.CalledProcessError as ex:
-            self.logger.warning('Transcoding failed for %s with: %s', self.simple_loc, ex.output)
+            self.execute(command, merge_stderr=False)
+        except ChildProcessError as e:
+            if not self.running:
+                self.logger.warning('Transcoding failed for %s due to early shut down.', self.simple_loc)
+                raise TranscodeError('Transcoding halted')
+            self.logger.warning('Transcoding failed for %s with code %i: %s', self.simple_loc, e.returncode, e.stderr)
             raise TranscodeError('Transcoding failed')
         self.logger.info('Transcoding completed for %s', self.simple_loc)
 

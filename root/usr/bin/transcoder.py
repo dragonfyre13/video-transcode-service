@@ -169,6 +169,9 @@ class Transcoder(object):
 
     def check_filesystem(self, config):
         '''Check that the filesystem and directories are setup as expected for the current config'''
+        # First, let's remove this annoying .dvdcss directory that keeps popping into /config
+        if os.path.exists(os.path.join(CONFIG_ROOT, '.dvdcss')):
+            shutil.rmtree(os.path.join(CONFIG_ROOT, '.dvdcss'))
         check_paths = [self.work_dir]
         # Clear this, otherwise all sorts of junk is created.
         self.set_current_file_props()

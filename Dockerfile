@@ -14,7 +14,6 @@ FROM lsiobase/alpine:3.8
 
 LABEL maintainer="Dragonfyre13"
 
-COPY root/ /
 COPY --from=buildstage /usr/local/bin/mp4* /usr/local/bin/
 COPY --from=buildstage /usr/local/lib/libmp4v2* /usr/local/lib/
 
@@ -32,8 +31,10 @@ RUN echo "**** install supporting packages ****" && \
     echo "**** install other pip packages ****" && \
     pip install --no-cache-dir -U pyyaml && \
     echo "**** Clean up temporary files ****" && \
-    rm -rf /root/.cache /tmp/* && \
-    chmod +x /usr/bin/transcoder.py
+    rm -rf /root/.cache /tmp/*
+
+COPY root/ /
+RUN chmod +x /usr/bin/transcoder.py
 
 # /config - Holds the auto-transcoding config and the harness process logs (not the handbrake logs)
 # /video_files - Holds the folder structures containing things to transcode, gets populated after running the first time

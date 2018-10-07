@@ -1,0 +1,35 @@
+# number of seconds a file must remain unmodified in the input directory before it is considered done copying.
+# Increase this value for more tolerance on bad network connections. Also changes wait time for minimum free disk space.
+write_waiting_threshold: 30
+# Minimum amount of space (in MB) required at the /transcoder_files directory to begin processing a new input file
+min_free_mb: 5000
+# If yes, this will require that all extra included audio streams have a language of 'english', 'eng', 'en' or '' (blank)
+# This only applies to extra streams (non-default audio), and only if we can successfully match streams to the stream titles.
+require_english: yes
+# A shared temporary location among all conversion_options, for handbrake to save output.
+# Files are moved to the output subdirectory after they are complete.
+work_dir: work
+# Subdirectory of the applicable conversion_option directory. Contains new videos to transcode.
+input_subdir: input
+# Subdirectory of the applicable conversion_option directory. Contains successfully transcoded videos.
+output_subdir: output
+# Subdirectory of the applicable conversion_option directory. Contains originals of successfully transcoded videos.
+successful_orginals_subdir: completed-originals
+# Subdirectory of the applicable conversion_option directory. Contains originals of videos that failed transcoding.
+failed_originals_subdir: failed
+# Arguments to pass to video-transcode for _all_ conversion_option choices.
+global_args: --burn-subtitle scan
+conversion_options:
+  # The key is a base path under /transcoder_files, the value is the set of arguments passed to video-transcode.
+  quality/any: --preset slower --target big --audio-width all=surround
+  quality/1080p: --max-width 1920 --max-height 1080 --preset slower --target big --audio-width all=surround
+  quality/720p: --720p --preset slower --target big --audio-width all=surround
+  general/720p: --720p --quick --audio-width main=surround
+  general/576p: --max-width 1024 --max-height 576 --target 1500 --quick --audio-width all=stereo
+  general/any: --quick --audio-width main=surround
+  size/720p: --720p --target 2000 --abr --quick --audio-width main=surround
+  size/576p: --max-width 1024 --max-height 576 --abr --target 1500 --quick --audio-width all=stereo
+  size/480p: --max-width 854 --max-height 480 --abr --target 1250 --quick --audio-width all=stereo
+  speed/any: --abr --veryquick --audio-width main=surround
+  speed/720p: --720p --abr --veryquick --audio-width main=surround
+  defaults: ''

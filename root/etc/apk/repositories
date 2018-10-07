@@ -1,0 +1,5 @@
+http://dl-cdn.alpinelinux.org/alpine/v3.8/main
+http://dl-cdn.alpinelinux.org/alpine/v3.8/community
+@edge http://nl.alpinelinux.org/alpine/edge/main
+@edgecommunity http://nl.alpinelinux.org/alpine/edge/community
+@edgetesting http://nl.alpinelinux.org/alpine/edge/testing

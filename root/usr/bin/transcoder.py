@@ -109,7 +109,7 @@ class Transcoder(object):
         logger.debug('Started transcoder logging')
         return logger
 
-    def load_config(self):
+    def reload_config(self):
         '''Reload the configuration from the yaml file, then check that the filesystem is still valid.'''
         config = self.get_config_dict()
         self._input_subdir = config['input_subdir'] or 'input'

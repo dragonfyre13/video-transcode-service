@@ -50,12 +50,13 @@ class Transcoder(object):
 
     @property
     def output_loc(self):
-        if self._current_filename:
-            return os.path.join(TC_ROOT, self._option_dir, self._output_subdir,
-                                self._current_relpath, os.path.splitext(self._current_filename)[0] + '.mkv')
-        else:
-            return os.path.join(TC_ROOT, self._option_dir, self._output_subdir,
-                                self._current_relpath, self._current_filename)
+        return os.path.join(TC_ROOT, self._option_dir, self._output_subdir,
+                            self._current_relpath, self._current_filename)
+
+    @property
+    def output_mkv_loc(self):
+        return os.path.join(TC_ROOT, self._option_dir, self._output_subdir,
+                            self._current_relpath, os.path.splitext(self._current_filename)[0] + '.mkv')
 
     @property
     def failed_originals_loc(self):
@@ -73,7 +74,7 @@ class Transcoder(object):
                                  self._option_dir)
 
     @property
-    def work_loc(self):
+    def work_mkv_loc(self):
         return os.path.join(self.work_dir,
                             os.path.splitext(self._current_filename)[0] + '.mkv')
 
@@ -296,9 +297,9 @@ class Transcoder(object):
 
         self.logger.debug('Video %s transcoded successfully, now generating transcode stats.', self.simple_loc)
         try:
-            with open(self.work_loc + '.transcode_stats', 'w') as f:
+            with open(self.work_mkv_loc + '.transcode_stats', 'w') as f:
                 for stat_type in 'rbst':
-                    out = self.execute('query-handbrake-log %s "%s"' % (stat_type, self.work_loc + '.log'))
+                    out = self.execute('query-handbrake-log %s "%s"' % (stat_type, self.work_mkv_loc + '.log'))
                     if stat_type == 'r':
                         self.logger.debug('Encoding rate factor (relative quality, lower=better): %s', out.strip())
                     f.write(out.strip() + '\n')
@@ -308,9 +309,9 @@ class Transcoder(object):
                                 self.simple_loc, ex.output)
         # move the completed output to the output directory
         self.logger.info('Moving completed work for %s to output directory', self.simple_loc)
-        self.move_file(self.work_loc, self.output_loc)
-        self.move_file(self.work_loc + '.log', self.output_loc + '.log')
-        self.move_file(self.work_loc + '.transcode_stats', self.output_loc + '.transcode_stats')
+        self.move_file(self.work_mkv_loc, self.output_mkv_loc)
+        self.move_file(self.work_mkv_loc + '.log', self.output_mkv_loc + '.log')
+        self.move_file(self.work_mkv_loc + '.transcode_stats', self.output_mkv_loc + '.transcode_stats')
 
     def scan_media(self, test_media_file=False):
         '''Use handbrake to scan the media for metadata'''
@@ -371,7 +372,7 @@ class Transcoder(object):
 
     def transcode(self):
         # if these paths exist in the work directory, remove them first
-        for workpath in (self.work_loc, self.work_loc + '.log'):
+        for workpath in (self.work_mkv_loc, self.work_mkv_loc + '.log'):
             if os.path.exists(workpath):
                 self.logger.info('Removing old work output: "%s"', workpath)
                 os.unlink(workpath)
@@ -381,7 +382,7 @@ class Transcoder(object):
             '--crop %s' % self.detect_crop(),
             self.parse_audio_tracks(),
             self.option_args,
-            '--output "%s"' % self.work_loc,
+            '--output "%s"' % self.work_mkv_loc,
             '"%s"' % self.input_loc
         ])
         self.logger.info('Transcoding %s with command: %s', self.simple_loc, command)

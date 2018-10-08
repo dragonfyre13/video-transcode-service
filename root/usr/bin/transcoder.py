@@ -238,7 +238,7 @@ class Transcoder(object):
 
             while self.running:
                 self.in_event_loop = True
-                self.reload_config()
+                self.config = self.reload_config()
                 if not self.check_for_input():
                     time.sleep(5)
             self.in_event_loop = False
